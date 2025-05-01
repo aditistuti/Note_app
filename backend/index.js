@@ -4,13 +4,16 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-mongoose.connect('mongodb://localhost:27017/notes', { useNewUrlParser: true, useUnifiedTopology: true })
+mongoose.connect(process.env.MONGO_URI , { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
@@ -25,31 +28,44 @@ const User = mongoose.model('User', userSchema);
 app.post('/api/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
-    
+
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: 'User already exists' });
     }
 
     bcrypt.genSalt(10, function(err, salt) {
-      bcrypt.hash(password, salt,async function(err, hash) {
-        const newUser = await User.create({
-          username,
-          email,
-          password: hash,
-        });
-          
+      if (err) {
+        return res.status(500).json({ message: 'Error generating salt' });
+      }
+
+      bcrypt.hash(password, salt, async function(err, hash) {
+        if (err) {
+          return res.status(500).json({ message: 'Error hashing password' });
+        }
+
+        try {
+          const newUser = await User.create({
+            username,
+            email,
+            password: hash,
+          });
+
+          let token = jwt.sign({ email: email }, process.env.JWT_SECRET);
+          res.cookie('token', token);
+          res.status(201).json({ message: 'User registered successfully', token });
+        } catch (error) {
+          console.error('Error saving user:', error);
+          res.status(500).json({ message: 'Error saving user to database' });
+        }
       });
-  });
-    let token = jwt.sign({ email: email }, "aditya");
-    res.cookie('token', token );
-    res.status(201).json({ message: 'User registered successfully', token });
+    });
+
   } catch (error) {
     console.error('Error registering user:', error);
     res.status(500).json({ message: 'api/register area catch' });
   }
 });
-
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
     let user = await User.findOne({ email:req.body.email });
